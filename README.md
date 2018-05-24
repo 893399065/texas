@@ -1,2 +1,0 @@
-# texas
-AI Texas game 
