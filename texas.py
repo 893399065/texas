@@ -16,12 +16,12 @@ from table import Table
 
 
 class Gamer:
-	count_number = 1000
+	count_number = 800
 	game_round = 1
 	right_forecast = 0
 	win_list = []
 	fold_list = []
-	waring = 0
+	warning = 0
 	def __init__(self, ticket, port):
 		self._phone_number = "13060067437"
 		self._password = "7602093"
@@ -70,8 +70,8 @@ class Gamer:
 				result = json.loads(result)
 				event_name = result["eventName"]
 				data = result["data"]
-				# print (json.dumps(result, sort_keys=True, indent=2))
-				# print ("---------------------------------------------------------------")
+				#print (json.dumps(result, sort_keys=True, indent=2))
+				#print ("---------------------------------------------------------------")
 				self.takeAction(event_name, data)
 			else:
 				# print ("there is some error")
@@ -170,43 +170,76 @@ class Gamer:
 							win = False
 					if(win == True):
 						count += 1
-					self._table.recoverPreCards()
-				
+					self._table.recoverPreCards()			
 				self._win_rate = count/Gamer.count_number
-				self._could_caculate = True
 
+				self._action = "call"
+				if(game_round_name == "Flop"):
+					if(self._win_rate <= 0.03):
+						self._action = "fold"
+					elif(self._win_rate < 0.1 and Gamer.warning != 0):
+						self._action = "fold"
+					if(self._win_rate > 0.5):
+						self._action = "raise"
+					
+
+				if(game_round_name == "Turn"):
+					if(self._win_rate < 0.05):
+						self._action = "fold"
+					elif(self._win_rate < 0.15 and Gamer.warning != 0):
+						self._action = "fold"
+					if(self._win_rate > 0.6):
+						self._action = "raise"
+
+				if(game_round_name == "River"):
+					if(self._win_rate < 0.4):
+						self._action = "fold"
+					if(self._win_rate > 0.7):
+						self._action = "raise"
+					if((self._win_rate > 0.2) and (self._odds_rate < 0.18) and (Gamer.warning == 0)):
+						self._action = "call"
+				print ("win rate", self._win_rate)
+				print ("action", self._action)
+				print ("call rate", self._call_rate, end="\n\n")
 
 			# 采取行动
-			if(event_name == "__action"):
-				if(self._action != "bet"):
-					msg = {
-						"eventName": "__action",
-						"data": {
-							"action": self._action
-						}
+			if(event_name == "__action"):			
+				msg = {
+					"eventName": "__action",
+					"data": {
+						"action": self._action
 					}
-				else:
-					amount = data["self"]["chips"]/5
+				}
+				if(self._action == "call"):
 					msg = {
-						"eventName": "__action",
-						"data": {
-							"action": self._action,
-							"amount": amount
+					"eventName" : "__action",
+					"data" : {
+						"action" : "bet",
+						"amount" : data["self"]["chips"]/15
+					}
+				}
+				if(self._action == "raise"):
+					msg = {
+						"eventName" : "__action",
+						"data" : {
+							"action" : "bet",
+							"amount" : data["self"]["chips"]/10
 						}
 					}
 				self.sendMessage(msg)
 
 
 			# 需要下注
-			if(event_name == "__bet"):	
+			if(event_name == "__bet"):
+				# 存在bug
 				if(self._action == "fold"):
 					msg = {
 					"eventName": "__action",
 					"data": {
-						"action": "fold"
+						"action": self._action
 						}
 					}
-				else:	
+				elif(self._action == "call"):
 					msg ={
 					    "eventName" : "__action",
 					    "data" : {
@@ -214,66 +247,42 @@ class Gamer:
 					        "amount" : 10
 					    }
 					}
+
+				elif(self._action == "raise"):
+					
+					msg = {
+						"eventName" : "__action",
+						"data" : {
+							"action" : "bet",
+							"amount" : data["self"]["chips"]/10
+						}
+					}
 				self.sendMessage(msg)
 
 
 			# 更新桌面状态
 			if(event_name == "__show_action"):
-				if(self._could_caculate == True):
-					maxbet = 0
-					mybet = 0
-					if(data["action"]["action"] == "raise"):
-						Gamer.waring += 1
-					for i in range(0, self._people_number):
-						if("roundBet" in data["players"][i].keys()):
-							if(data["players"][i]["roundBet"] > maxbet):
-								maxbet = data["players"][i]["roundBet"]
-							if(data["players"][i]["playerName"] == self._player_name):
-								mybet = data["players"][i]["roundBet"]
-					total_bet = data["table"]["totalBet"]
-					self._odds_rate = maxbet / (total_bet + maxbet - mybet)
-					count = 0
-					for i in range(0, self._people_number):
-						if(data["players"][i]["folded"] == True):
-							count += 1
-					self._call_rate = (self._people_survive - count)/self._people_survive
-					game_round_name = data["table"]["roundName"]
-					temp = self._win_rate/self._odds_rate
-					if(game_round_name == "Flop"):
-						if(self._win_rate > 0.15):
-							self._action = "call"
-						else:
-							self._action = "fold"
-						if(self._win_rate > 0.7):
-							self._action = "raise"
-						
+				maxbet = 0
+				mybet = 0
+				if(data["action"]["action"] == "raise"):
+					if(data["action"]["playerName"] != self._player_name):
+						Gamer.warning += 1
 
-					if(game_round_name == "Turn"):
-						if(temp > 1.5):
-							self._action = "call"
-						else:
-							self._action = "fold"
-						if(self._win_rate > 0.7):
-							self._action = "raise"
-						if(self._win_rate < 0.2):
-							self._action = "fold"
+				for i in range(0, self._people_number):
+					if("roundBet" in data["players"][i].keys()):
+						if(data["players"][i]["roundBet"] > maxbet):
+							maxbet += data["players"][i]["roundBet"]
+						if(data["players"][i]["playerName"] == self._player_name):
+							mybet += data["players"][i]["roundBet"]
+				total_bet = data["table"]["totalBet"]
+				self._odds_rate = maxbet / (total_bet + maxbet - mybet)
+				count = 0
+				for i in range(0, self._people_number):
+					if(data["players"][i]["folded"] == True):
+						count += 1
+				self._call_rate = (self._people_survive - count)/self._people_survive
 
-					if(game_round_name == "River"):
-						if(temp > 2):
-							self._action = "call"
-						else:
-							self._action = "fold"
-						if(self._win_rate < 0.65 and self._call_rate > 0.4 and Gamer.waring >= 1):
-							self._action = "fold"
-						if(self._call_rate < 0.2 and self._odds_rate < 0.08 and self._win_rate > 0.5):
-							self._action = "call"
-						if(self._win_rate > 0.8):
-							self._action = "raise"
-					print (self._win_rate)
 
-			# 新人入场
-			if(event_name == "__new_peer"):
-				pass
 
 
 
@@ -282,35 +291,19 @@ class Gamer:
 				rank_list = []
 				fold_choice = None
 				self._could_caculate = False
-				Gamer.waring = 0
-				for i in range(0, self._people_number):
-					if("hand" in data["players"][i]):
-						if(data["players"][i]["playerName"] == self._player_name):
-							rank_list.insert(0, data["players"][i]["hand"]["rank"])
-							fold_choice = data["players"][i]["folded"]
-						else:
-							rank_list.append(data["players"][i]["hand"]["rank"])
-				iswin = True
-				temp = self._win_rate/self._odds_rate
-				for i in range(1, len(rank_list)):
-					if(rank_list[0] < rank_list[i]):
-						iswin = False
-						break
-				if(iswin == True):
-					Gamer.win_list.append(self._win_rate)
-				else:
-					Gamer.fold_list.append(self._win_rate)
+				Gamer.warning = 0
 				self._people.clear()
+				print ("-----------------------------")
 
 
 			# 游戏结束
 			if(event_name == "__game_over"):
-				pass
+				print (data["winners"])
 		else:
 			print ("wait the this round over")
 
 if __name__ == '__main__':
-	ticket = "qqi82fgs9g62n2ez3yurwqx0bkl1xn"
+	ticket = "9y3gf1u6k6vje2zbt8myy8g00rc9ag"
 	port = "9021"
 	my = Gamer(ticket, port) 
 	my.doListen()
